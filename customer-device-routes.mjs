@@ -271,9 +271,13 @@ await devices()}catch(e){$('stopResult').textContent=e.message}};
 export async function handleDeviceRoute(req,env,verify){
  const path=new URL(req.url).pathname;
  if(!path.startsWith('/api/customer/')&&!path.startsWith('/api/agent/control/')&&path!=='/customer')return null;
+ // Agent API only needs D1: its 384-bit bearer credential is separately verified against a stored SHA-256.
+ if(path.startsWith('/api/agent/control/')){
+  if(!env?.DB)return deny('Agent database unavailable',503);
+  try{return await device(req,env,path)}catch{return deny('Agent service unavailable',503)}
+ }
+ // Customer pages are still Access JWT guarded and require their original provisioned config.
  if(!configured(env))return deny('Customer service not provisioned',503);
- try{
-  if(path.startsWith('/api/customer/')||path==='/customer')return await customer(req,env,verify,path);
-  return await device(req,env,path);
- }catch{return deny('Device service unavailable',503)}
+ try{return await customer(req,env,verify,path)}
+ catch{return deny('Device service unavailable',503)}
 }

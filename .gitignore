@@ -9,3 +9,5 @@ tests/fixtures/Customer Workspace/documents/customer-proof-*.txt
 .env
 .dev.vars
 *.log
+agent/Device Data/
+*.dpapi

@@ -30,11 +30,16 @@ function sanitize(result,kind){
 }
 export class CommercialDeviceAgent{
  constructor({tenantId,deviceId,agentToken,serviceUrl,workspaceRoot,journalPath,
-   approvedResume=async()=>false,approvedWrite=async()=>false,fetcher=fetch,allowLocalHttpTest=false}={}){
+   approvedResume=async()=>false,approvedWrite=async()=>false,fetcher=fetch,allowLocalHttpTest=false,
+   accessClientId=null,accessClientSecret=null}={}){
   if(typeof tenantId!=='string'||!tenantId||typeof deviceId!=='string'||!deviceId)throw fail('DEVICE_IDENTITY_REQUIRED');
   if(typeof agentToken!=='string'||!/^[a-f0-9]{96}$/.test(agentToken))throw fail('ONE_TIME_AGENT_TOKEN_REQUIRED');
   if(typeof workspaceRoot!=='string'||!path.isAbsolute(workspaceRoot)||typeof journalPath!=='string'||!path.isAbsolute(journalPath))throw fail('LOCAL_DIRECTORY_REQUIRED');
   if(typeof approvedResume!=='function'||typeof approvedWrite!=='function')throw fail('LOCAL_POLICY_REQUIRED');
+  if(Boolean(accessClientId)!==Boolean(accessClientSecret))throw fail('CLOUDFLARE_SERVICE_AUTH_PAIR_REQUIRED');
+  if(accessClientId&&(!/^[A-Za-z0-9._-]{10,240}$/.test(accessClientId)||
+     typeof accessClientSecret!=='string'||accessClientSecret.length<30||accessClientSecret.length>300))throw fail('INVALID_ACCESS_SERVICE_CREDENTIALS');
+  this.accessHeaders=accessClientId?{'CF-Access-Client-Id':accessClientId,'CF-Access-Client-Secret':accessClientSecret}:{};
   this.service=validateUrl(serviceUrl,allowLocalHttpTest);
   this.token=agentToken;this.tenantId=tenantId;this.deviceId=deviceId;
   this.journalPath=journalPath;this.fetcher=fetcher;this.seen=new Set();
@@ -60,7 +65,7 @@ export class CommercialDeviceAgent{
  async request(api,body){
   const res=await this.fetcher(this.service+api,{
     method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),
-    headers:{'content-type':'application/json','authorization':'Bearer '+this.token},
+    headers:{'content-type':'application/json','authorization':'Bearer '+this.token,...this.accessHeaders},
     body:JSON.stringify(body)});
   const data=await res.json().catch(()=>null);
   if(!res.ok)throw fail('SERVICE_'+res.status);

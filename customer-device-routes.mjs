@@ -75,6 +75,29 @@ async function customer(req,env,verify,path){
   return respond({agent_id:agentId,device_id:x.device_id,tenant_id:user.tenantId,mode:'STOP',
      one_time_agent_token:secret,note:'Copy this once to your approved device. Never share publicly.'},201);
  }
+  // Tenant-authenticated reissue for the SAME existing STOP/unseen agent.
+  // Previous token is revoked atomically, no new tenant or device is created.
+  if(path==='/api/customer/devices/reissue'&&post(req)){
+   let x;try{x=await body(req,500)}catch{return deny('Invalid reissue request',400)}
+   if(!validId(x.agent_id)||x.confirm!=='REISSUE_STOPPED_UNSEEN_DEVICE')return deny('Explicit confirmation required',400);
+   const found=await stmt(env.DB,`SELECT a.device_id,c.mode,c.last_seen_at FROM agents a
+     JOIN customer_device_control c ON a.agent_id=c.agent_id AND a.tenant_id=c.tenant_id
+     WHERE a.agent_id=? AND a.tenant_id=? AND a.active=1`,x.agent_id,user.tenantId).first();
+   if(!found)return deny('Device not found',404);
+   if(found.mode!=='STOP'||found.last_seen_at!==null)return deny('Device has already connected or is not STOP',409);
+   const pending=await stmt(env.DB,`SELECT COUNT(*) AS total FROM customer_device_jobs
+     WHERE agent_id=? AND tenant_id=? AND state IN ('QUEUED','DELIVERED','RUNNING')`,x.agent_id,user.tenantId).first();
+   if(Number(pending?.total||0)>0)return deny('Device still has outstanding work',409);
+   const token=Array.from(crypto.getRandomValues(new Uint8Array(48)),b=>b.toString(16).padStart(2,'0')).join('');
+   const changed=await stmt(env.DB,`UPDATE agents SET token_hash=?
+     WHERE agent_id=? AND tenant_id=? AND active=1 AND EXISTS (
+       SELECT 1 FROM customer_device_control c WHERE c.agent_id=agents.agent_id
+       AND c.tenant_id=agents.tenant_id AND c.mode='STOP' AND c.last_seen_at IS NULL
+     )`,await digest(token),x.agent_id,user.tenantId).run();
+   if(changed.meta?.changes!==1)return deny('Device state changed before reissue',409);
+   return respond({agent_id:x.agent_id,device_id:found.device_id,mode:'STOP',
+     one_time_agent_token:token,note:'Old device token revoked. Save this new token only on your authorized device.'});
+  }
  if(path==='/api/customer/devices/stop'&&post(req)){
   let x;try{x=await body(req,400)}catch{return deny('Invalid stop request',400)}
   if(!validId(x.agent_id))return deny('Invalid agent',400);
@@ -133,6 +156,11 @@ async function customer(req,env,verify,path){
 async function device(req,env,path){
  const agent=await agentViewer(req,env);if(!agent)return deny();
  const gate=await control(env.DB,agent);
+ if(path==='/api/agent/control/bootstrap'&&post(req)){
+  return respond({agent_id:agent.agent_id,tenant_id:agent.tenant_id,device_id:agent.device_id,
+    mode:gate.mode,locked:!!gate.locked,epoch:gate.epoch,
+    note:'Token-verified identity. Device still starts in local STOP.'});
+ }
  if(path==='/api/agent/control/state'&&post(req)){
   let x;try{x=await body(req,600)}catch{return deny('Invalid state',400)}
   if(!['STOP','LIMITED','GO'].includes(x.mode)||!Number.isSafeInteger(x.local_epoch)||x.local_epoch<1)return deny('Invalid local mode',400);
@@ -195,7 +223,7 @@ label{display:block;margin:12px 0 5px;font-size:12px;color:#dcca82}input,select{
 <article><h2>Enroll your computer</h2><p>Your account owns this device. Enrollment starts in STOP mode and requires an on-device agent installation.</p>
 <label for="newDevice">Device identifier</label><input id="newDevice" placeholder="my-computer-01">
 <p><button id="enrollDevice">Create one-time pairing token</button></p>
-<div id="pairToken" class="mono" aria-live="polite">No token generated.</div><p><button id="copyToken">Copy pairing token</button></p></article>
+<div id="pairToken" class="mono" aria-live="polite">No token generated.</div><p><button id="copyToken">Copy pairing token</button></p><p><button id="reissueToken">Reissue token for selected STOP/unseen device</button></p><p>Previous token is revoked. Only for devices that have never connected.</p></article>
 <article><h2>Device request</h2><label for="device">My device</label><select id="device"></select>
 <label for="action">Action</label><select id="action"><option value="system_info">System information</option><option value="list_dir">List approved folder</option><option value="read_file">Read approved file</option></select>
 <label for="target">Relative path in locally authorized workspace</label><input id="target" value="documents">
@@ -221,6 +249,14 @@ $('enrollDevice').onclick=async()=>{try{
 $('copyToken').onclick=async()=>{if(!oneTimeToken){$('pairToken').textContent='Create a token first';return}
 try{await navigator.clipboard.writeText(oneTimeToken);$('pairToken').textContent='One-time pairing token copied. Install the agent on YOUR authorized computer and clear your clipboard.'}
 catch{$('pairToken').textContent='Clipboard unavailable. Select and copy the token before navigating away: '+oneTimeToken}};
+ $('reissueToken').onclick=async()=>{try{
+  const d=(await api('/api/customer/devices')).devices.find(x=>x.device_id===$('device').value);
+  if(!d||d.mode!=='STOP'||d.last_seen_at!==null)throw Error('Only STOPPED, never-connected devices are eligible');
+  if(!confirm('Reissue token for '+d.device_id+'? The previous token immediately stops working.'))return;
+  const x=await api('/api/customer/devices/reissue',{agent_id:d.agent_id,confirm:'REISSUE_STOPPED_UNSEEN_DEVICE'});
+  oneTimeToken=x.one_time_agent_token;
+  $('pairToken').textContent='Reissued token for '+x.device_id+' (shown only now): '+oneTimeToken;
+ }catch(e){$('pairToken').textContent=e.message}};
 $('submit').onclick=async()=>{try{const action=$('action').value;const args=action==='system_info'?{}:{path:$('target').value};
 $('result').textContent=JSON.stringify(await api('/api/customer/jobs',{device_id:$('device').value,action,arguments:args}),null,2)}
 catch(e){$('result').textContent=e.message}};

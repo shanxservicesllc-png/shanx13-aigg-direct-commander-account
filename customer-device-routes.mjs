@@ -192,6 +192,10 @@ label{display:block;margin:12px 0 5px;font-size:12px;color:#dcca82}input,select{
 <header>SHANX13 <b>AIGG</b> / DIRECT COMMANDER <span style="float:right">Customer Control</span></header>
 <main><h1>Control your authorized devices.</h1><p id="identity">Checking verified customer identity...</p>
 <div class="panels"><article><h2>My devices</h2><button id="loadDevices">Refresh devices</button><div id="devices" class="mono"></div></article>
+<article><h2>Enroll your computer</h2><p>Your account owns this device. Enrollment starts in STOP mode and requires an on-device agent installation.</p>
+<label for="newDevice">Device identifier</label><input id="newDevice" placeholder="my-computer-01">
+<p><button id="enrollDevice">Create one-time pairing token</button></p>
+<div id="pairToken" class="mono" aria-live="polite">No token generated.</div><p><button id="copyToken">Copy pairing token</button></p></article>
 <article><h2>Device request</h2><label for="device">My device</label><select id="device"></select>
 <label for="action">Action</label><select id="action"><option value="system_info">System information</option><option value="list_dir">List approved folder</option><option value="read_file">Read approved file</option></select>
 <label for="target">Relative path in locally authorized workspace</label><input id="target" value="documents">
@@ -206,6 +210,17 @@ async function devices(){try{let x=await api('/api/customer/devices');$('devices
 const select=$('device');select.replaceChildren();x.devices.forEach(d=>{const o=document.createElement('option');o.value=d.device_id;o.textContent=d.device_id+' / '+d.mode;select.append(o)})}catch(e){$('devices').textContent=e.message}}
 async function jobs(){try{$('jobs').textContent=JSON.stringify((await api('/api/customer/jobs')).jobs,null,2)}catch(e){$('jobs').textContent=e.message}}
 $('loadDevices').onclick=devices;$('loadJobs').onclick=jobs;
+let oneTimeToken='';
+$('enrollDevice').onclick=async()=>{try{
+ const device=$('newDevice').value.trim();
+ const x=await api('/api/customer/devices/enroll',{device_id:device});
+ oneTimeToken=x.one_time_agent_token;
+ $('pairToken').textContent='One-time token for '+x.device_id+' (shown only now): '+oneTimeToken;
+ await devices();
+}catch(e){$('pairToken').textContent=e.message}};
+$('copyToken').onclick=async()=>{if(!oneTimeToken){$('pairToken').textContent='Create a token first';return}
+try{await navigator.clipboard.writeText(oneTimeToken);$('pairToken').textContent='One-time pairing token copied. Install the agent on YOUR authorized computer and clear your clipboard.'}
+catch{$('pairToken').textContent='Clipboard unavailable. Select and copy the token before navigating away: '+oneTimeToken}};
 $('submit').onclick=async()=>{try{const action=$('action').value;const args=action==='system_info'?{}:{path:$('target').value};
 $('result').textContent=JSON.stringify(await api('/api/customer/jobs',{device_id:$('device').value,action,arguments:args}),null,2)}
 catch(e){$('result').textContent=e.message}};

@@ -1,0 +1,26 @@
+name: Commercial device control checks
+on:
+  push:
+    branches: [main, "feature/commercial-device-control-v0.2"]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check service and agent JS
+        run: |
+          node --check worker.mjs
+          node --check customer-device-routes.mjs
+          node --check agent/cloud-agent.mjs
+          node --check agent/dispatch.mjs
+          node --check agent/real-device-handlers.mjs
+      - name: Test verified access, isolation, device receipts and HTTP agent
+        run: node --test tests/portal.test.mjs tests/customer-devices-release.test.mjs tests/http-first-customer-release.test.mjs

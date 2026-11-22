@@ -1,3 +1,4 @@
+import {handleDeviceRoute} from './customer-device-routes.mjs';
 // ShanX13 AiGG / Direct Commander — independent Cloudflare customer portal.
 // Security boundary: no device commands, no credentials in source, no X13 ledger writes.
 // Production disabled without verified Cloudflare Access audience, owner allowlist and D1.
@@ -58,6 +59,8 @@ export async function handleRequest(req,env){
   const url=new URL(req.url);const path=url.pathname;
   if(path==="/healthz")return json({product:"ShanX13 AiGG Direct Commander",online:true,customer_login:false,device_execution:false});
   if(!configured(env))return json({error:"Service not provisioned"},503);
+  const deviceResponse=await handleDeviceRoute(req,env,verifyCloudflareAccessJWT);
+  if(deviceResponse)return deviceResponse;
   if(path==="/api/agent/events"){
     if(req.method!=="POST")return json({error:"Method not allowed"},405);
     const token=bearer(req);

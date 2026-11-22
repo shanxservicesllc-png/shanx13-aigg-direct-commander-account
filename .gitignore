@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+Cloudflare Dry Run/
+Cloudflare Final Bundle/
+*.ndjson
+tests/fixtures/Customer Workspace/documents/cloud-chain-*.txt
+tests/fixtures/Customer Workspace/documents/network-proof-*.txt
+tests/fixtures/Customer Workspace/documents/customer-proof-*.txt
+.env
+.dev.vars
+*.log
